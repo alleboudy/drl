@@ -6,9 +6,9 @@ import torch
 import torch.optim as optim
 from tensorboardX import SummaryWriter
 from lib import dqn_model, common,wrappers
-
-
-
+import numpy as np
+STATES_TO_EVALUATE = 1000
+EVAL_EVERY_FRAME = 100
 
 
 if __name__ == "__main__":
@@ -16,10 +16,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--cuda", default=True, action="store_true", help="Enable cuda")
     parser.add_argument("--n", default=1,  help="how many steps to unroll from the bellman equation")
+    parser.add_argument("--double", default=False, action="store_true", help="Enable double DQN")
     args = parser.parse_args()
     device = torch.device("cuda" if args.cuda else "cpu")
-    unrolling_steps = args.n if args.n else 1
-    print('bellman unrolling steps'+ str(unrolling_steps))
+    unrolling_steps = int(args.n) if args.n else 1
+    print('bellman unrolling steps: '+ str(unrolling_steps))
+    double = args.double if args.double else False
     #env = gym.make(params['env_name'])
     #ptan.common.wrappers.wrap_dqn(env)
     env = wrappers.make_env(params['env_name'])
@@ -33,6 +35,7 @@ if __name__ == "__main__":
     buffer = ptan.experience.ExperienceReplayBuffer(exp_source, buffer_size=params['replay_size'])
     optimizer = optim.Adam(net.parameters(), lr=params['learning_rate'])
     frame_idx = 0
+    eval_states = None
     with common.RewardTracker(writer, params['stop_reward']) as reward_tracker:
         while True:
             frame_idx += 1
@@ -52,10 +55,17 @@ if __name__ == "__main__":
             
             if len(buffer) < params['replay_initial']:# we need to fill the buffer before training so that we have episodes to train on
                 continue
+            if eval_states is None:
+                eval_states = buffer.sample(STATES_TO_EVALUATE)
+                eval_states = [np.array(transition.state, copy=False) for transition in eval_states]
+                eval_states = np.array(eval_states, copy=False)
+            if frame_idx % EVAL_EVERY_FRAME == 0:
+                mean_val = common.calc_values_of_states(eval_states, net, device=device)
+                writer.add_scalar("values_mean", mean_val, frame_idx)
             # taking a training step!
             optimizer.zero_grad()
             batch = buffer.sample(params['batch_size'])
-            loss_v = common.calc_loss_dqn(batch, net, tgt_net.target_model, gamma=params['gamma']**unrolling_steps, device=device)
+            loss_v = common.calc_loss_dqn(batch, net, tgt_net.target_model, gamma=params['gamma']**unrolling_steps, double = double, device=device)
             loss_v.backward()
             optimizer.step()
             if frame_idx % params['target_net_sync'] == 0:#when to sync our target network

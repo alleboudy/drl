@@ -3,6 +3,7 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
+
 HYPERPARAMS = {
     'pong': {
         'env_name':         "PongNoFrameskip-v4",
@@ -46,7 +47,7 @@ def unpack_batch(batch):
            np.array(dones, dtype=np.uint8), np.array(last_states, copy=False)
 
 
-def calc_loss_dqn(batch, net, tgt_net, gamma, device="cpu"):
+def calc_loss_dqn(batch, net, tgt_net, gamma, double=True , device="cpu"):
     """
     L = (Qs,a - (r+Gamma * Max_a' Qs',a'))^2
     """
@@ -59,9 +60,15 @@ def calc_loss_dqn(batch, net, tgt_net, gamma, device="cpu"):
     done_mask = torch.ByteTensor(dones).to(device)
 
     state_action_values = net(states_v).gather(1, actions_v.unsqueeze(-1)).squeeze(-1)
-    next_state_values = tgt_net(next_states_v).max(1)[0]
-    next_state_values[done_mask] = 0.0
+    if double:#DQN are less overestimating the Q values
+        #these two lines will pick the target Q values of the actions with the max Q values in our training network
+        #Q(s_t,a_t) = r_t+\GAMMA * max_a Q'(s_{t+1},argmax_a Q(s_{t+1},a))
+        next_state_actions = net(next_states_v).max(1)[1]#argmax_a Q(s_{t+1},a) torch.tensor.max(1 for the actions dim<0 is the batch dim>) [1 for the index of the value which is the action index, 0 is the actual max value]
+        next_state_values = tgt_net(next_states_v).gather(1, next_state_actions.unsqueeze(-1)).squeeze(-1)# max_a Q'(s_{t+1},argmax_a Q(s_{t+1},a)) the corresponding Q values from the target network to the actions with the max Q values in the training network
+    else:
+        next_state_values = tgt_net(next_states_v).max(1)[0] # Q(s_t,a_t) = r_t+\Gamma* max_a Q'(s_{t+1},a_{t+1}) corresponds to just picking the max q val for each transition in the batch from the trget network
 
+    next_state_values[done_mask] = 0.0
     expected_state_action_values = next_state_values.detach() * gamma + rewards_v
     return nn.MSELoss()(state_action_values, expected_state_action_values)
 
@@ -121,3 +128,11 @@ class RewardTracker:
 
 
 
+def calc_values_of_states(states, net, device="cpu"):
+    mean_vals = []
+    for batch in np.array_split(states, 64):
+        states_v = torch.tensor(batch).to(device)
+        action_values_v = net(states_v)
+        best_action_values_v = action_values_v.max(1)[0]
+        mean_vals.append(best_action_values_v.mean().item())
+    return np.mean(mean_vals)
