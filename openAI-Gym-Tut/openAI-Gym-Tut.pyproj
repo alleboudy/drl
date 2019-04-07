@@ -23,6 +23,9 @@
     <InterpreterReference Include="Global|PythonCore|3.5" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="HillClimbingCarPole.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="RandomSearchCartPole.py">
       <SubType>Code</SubType>
     </Compile>
