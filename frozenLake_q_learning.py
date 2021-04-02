@@ -5,7 +5,7 @@ from tensorboardX import SummaryWriter
 
 """ 
 Main data structures we use:
-1- Reward Dictionary key:(state,action) value:immediate reward
+1- Reward Dictionary key:(state,action,new_state) value:immediate reward
 2- Transition table key:(state,action) value: Dictionary {key:landingState, val:count<how many times we landed in this state by executing that action in theat starting state>}
 3- Value Dictionary key:state value: 
 V(s) = max_{a\inA} Q(s,a)
