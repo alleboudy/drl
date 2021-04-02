@@ -5,7 +5,7 @@ from tensorboardX import SummaryWriter
 
 """ 
 Main data structures we use:
-1- Reward Dictionary key:(state,action) value:immediate reward
+1- Reward Dictionary key:(state,action,next_state) value:immediate reward
 2- Transition table key:(state,action) value: Dictionary {key:landingState, val:count<how many times we landed in this state by executing that action in theat starting state>}
 3- Value Dictionary key:state value: 
 V(s) = max_{a\inA} Q(s,a)
@@ -14,7 +14,7 @@ V(s) = max_{a\inA} Q(s,a)
 
 1- we play 100 random steps to populate the reward and transition tables
 2- perform a value iteration loop over all states to update the value table
-3- play several full episodes using the updated value table to compute an average reward for those episodes -> during that we also update the reward and transition tables, unlike cross entropy where we did not update our weights til the end of the full episode
+3- play several full TEST episodes using the updated value table to compute an average reward for those episodes -> during that we also update the reward and transition tables, unlike cross entropy where we did not update our weights til the end of the full episode
 4- if the average reward is > 0.8, stop training.
 
 """
@@ -53,7 +53,7 @@ class Agent():
                = Sum_{s'\inS}P{a,s->s'} *[r_{s,a,s'}+GAMMA *V_s']
             so, for each s' landing state we get from the transitions table[(s,a)]
             1- compute P_{a,s->s'} *( r_{s,a,s'}+GAMMA V_s')
-            2- sum the (1)s of all landing states to get the total Q(s,a)
+            2- sum the (from step 1)s of all landing states to get the total Q(s,a)
 
         """
         target_counts = self.transits[(state, action)]
@@ -102,9 +102,9 @@ class Agent():
     def value_iteration(self):
         """ For each state in our environment, computes the V(s) """
         for state in range(self.env.observation_space.n):  # we do so for each state we have in the environment
-            state_values = [self.calc_action_value(state, action) for action in range(
+            state_qvalues = [self.calc_action_value(state, action) for action in range(
                 self.env.action_space.n)]  # for each action, compute the Q(s,a)
-            self.values[state] = max(state_values)  # update the V(s)
+            self.values[state] = max(state_qvalues)  # update the V(s)
 
 
 if __name__ == "__main__":

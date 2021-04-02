@@ -103,7 +103,7 @@ class Agent():
 
 
     def value_iteration(self):
-        """ For each state in our environment, computes the V(s) """
+        """ For each state in our environment, computes the q(s,a) """
         for state in range(self.env.observation_space.n):# we do so for each state we have in the environment
             for action in range(self.env.action_space.n):
                 action_value = 0.0
