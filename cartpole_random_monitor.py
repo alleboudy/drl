@@ -3,7 +3,7 @@ import gym
 
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
-    env = gym.wrappers.Monitor(env, "recording",force=True)
+    env = gym.wrappers.Monitor(env, "recording", force=True)
 
     total_reward = 0.0
     total_steps = 0
@@ -17,6 +17,7 @@ if __name__ == "__main__":
         if done:
             break
 
-    print("Episode done in %d steps, total reward %.2f" % (total_steps, total_reward))
+    print("Episode done in %d steps, total reward %.2f" %
+          (total_steps, total_reward))
     env.close()
     env.env.close()
