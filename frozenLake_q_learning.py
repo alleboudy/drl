@@ -31,7 +31,7 @@ class Agent():
         self.state = self.env.reset()
         self.rewards = collections.defaultdict(float)
         self.transits = collections.defaultdict(collections.Counter)
-        self.values = collections.defaultdict(float)
+        self.Qvalues = collections.defaultdict(float)
     def play_n_random_steps(self,count):
         for _ in range(count):
             action = self.env.action_space.sample()
@@ -59,7 +59,7 @@ class Agent():
     #     action_value = 0.0
     #     for tgt_state, count in target_counts.items():
     #         reward = self.rewards[(state,action,tgt_state)]
-    #         action_value +=(count/total) * (reward + GAMMA * self.values[tgt_state])
+    #         action_value +=(count/total) * (reward + GAMMA * self.Qvalues[tgt_state])
     #     return action_value
 
             
@@ -76,7 +76,7 @@ class Agent():
         """
         best_action, best_value = None, None
         for action in range(self.env.action_space.n):
-            action_value=self.values[(state,action)]
+            action_value=self.Qvalues[(state,action)]
             if best_value is None or best_value < action_value:
                 best_value = action_value
                 best_action = action
@@ -102,7 +102,7 @@ class Agent():
         return total_reward
 
 
-    def value_iteration(self):
+    def q_iteration(self):
         """ For each state in our environment, computes the q(s,a) """
         for state in range(self.env.observation_space.n):# we do so for each state we have in the environment
             for action in range(self.env.action_space.n):
@@ -112,8 +112,8 @@ class Agent():
                 for tgt_state, count in target_counts.items():
                     reward = self.rewards[(state,action,tgt_state)]
                     best_action  = self.select_action(tgt_state)
-                    action_value += (count/total) * (reward + GAMMA * self.values[(tgt_state,best_action)])
-                self.values[(state,action)] = action_value
+                    action_value += (count/total) * (reward + GAMMA * self.Qvalues[(tgt_state,best_action)])
+                self.Qvalues[(state,action)] = action_value
 
             
 
@@ -129,7 +129,7 @@ if __name__=="__main__":
     while True:
         iter_no +=1
         agent.play_n_random_steps(100)
-        agent.value_iteration()
+        agent.q_iteration()
         reward = 0.0
         for _ in range(TEST_EPISODES):
             reward +=agent.play_episode(test_env)

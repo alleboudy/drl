@@ -135,7 +135,7 @@ class ImageToPyTorch(gym.ObservationWrapper):
 
 class ScaledFloatFrame(gym.ObservationWrapper):
     """
-    Scaling the pixels values to be between 0 and 255 and converting their datatype to float32
+    Scaling the pixels values to be between 0 and 1 and converting their datatype to float32
     """
     def observation(self, obs):
         return np.array(obs).astype(np.float32) / 255.0
