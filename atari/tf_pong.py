@@ -1,14 +1,16 @@
-from tensorboardX import SummaryWriter
-import torch.optim as optim
-import torch.nn as nn
-import torch
-import collections
-import numpy as np
-import time
-import argparse
-from lib import dqN_model2
-from lib import wrappers
 print("our new code!")
+from lib import wrappers
+from lib import tf_dqn_model
+
+import argparse
+import time
+import numpy as np
+import collections
+
+import tensorflow as tf
+
+
+from tensorboardX import SummaryWriter
 
 
 DEFAULT_ENV_NAME = "PongNoFrameskip-v4"
@@ -16,10 +18,16 @@ MEAN_REWARD_BOUND = 19.0
 
 GAMMA = 0.99
 BATCH_SIZE = 32
-REPLAY_SIZE = 10000
-REPLAY_START_SIZE = 10000
+REPLAY_SIZE = 32#10000
+REPLAY_START_SIZE = 32#10000
 LEARNING_RATE = 1e-4
 SYNC_TARGET_FRAMES = 1000
+
+
+loss_object = tf.keras.losses.MSE
+
+optimizer = tf.keras.optimizers.Adam(LEARNING_RATE)
+
 
 EPSILON_DECAY_LAST_FRAME = 10**5
 EPSILON_START = 1.0
@@ -44,7 +52,7 @@ class ExperienceBuffer:
         states, actions, rewards, dones, next_states = zip(
             *[self.buffer[idx] for idx in indices])
 
-        return np.array(states), np.array(actions), np.array(rewards, dtype=np.float32), np.array(dones, dtype=np.uint8), np.array(next_states)
+        return np.array(states), np.array(actions), np.array(rewards, dtype=np.float32), np.array(dones, dtype=np.bool), np.array(next_states)
 
 
 class Agent:
@@ -57,18 +65,17 @@ class Agent:
         self.state = self.env.reset()
         self.total_reward = 0.0
 
-    @torch.no_grad()
-    def play_step(self, net, epsilon=0.0, device="cuda"):
+    def play_step(self, net, epsilon=0.0):
         done_reward = None
 
         if np.random.random() < epsilon:
             action = self.env.action_space.sample()
         else:
             state_a = np.array([self.state], copy=False)
-            state_v = torch.tensor(state_a).to(device)
+            state_v = tf.convert_to_tensor(state_a, tf.float32)
             q_vals_v = net(state_v)  # shape-> [1,n_actions]
-            _, act_v = torch.max(q_vals_v, dim=1)
-            action = int(act_v.item())
+            action = tf.math.reduce_max(q_vals_v, dim=1).numpy()[0]
+            print(action)
 
         new_state, reward, is_done, _ = self.env.step(action)
         self.total_reward += reward
@@ -81,25 +88,30 @@ class Agent:
         return done_reward
 
 
-def calc_loss(batch, net, tgt_net, device="cuda"):
-    states, actions, rewards, dones, next_states = batch
+  
+  
 
-    states_v = torch.tensor(states).to(device)
-    actions_v = torch.tensor(actions).to(device)
-    rewards_v = torch.tensor(rewards).to(device)
-    done_mask = torch.BoolTensor(dones).to(device)
-    next_states_v = torch.tensor(next_states).to(device)
-    state_action_values = net(states_v).gather(
-        1, actions_v.unsqueeze(-1)).squeeze(-1)
+@tf.function
+def train_step(batch, net, tgt_net):
+    with tf.GradientTape() as tape:
+        states, actions, rewards, dones, next_states = batch
+        states_v = tf.convert_to_tensor(states, tf.float32)
+        actions_v = tf.convert_to_tensor(actions, tf.int64)
+        rewards_v = tf.convert_to_tensor(rewards, tf.float32)
+        done_mask = tf.convert_to_tensor(dones, dtype=tf.bool)
+        done_mask = tf.expand_dims(tf.cast(done_mask, dtype=tf.float32), axis=1)
+        next_states_v = tf.convert_to_tensor(next_states, tf.float32)
+        state_action_values = tf.squeeze(tf.gather_nd(net(states_v),tf.expand_dims(actions_v,1)),-1)
 
-    next_states_values = tgt_net(next_states_v).max(1)[0]
-    next_states_values[done_mask] = 0.0
+        next_states_values =  tf.math.reduce_max(tgt_net(next_states_v),1,False) #* done_mask
 
-    next_states_values = next_states_values.detach()
 
-    expected_state_action_values = rewards_v + next_states_values * GAMMA
+        expected_state_action_values = rewards_v + next_states_values * GAMMA
 
-    return nn.MSELoss()(state_action_values, expected_state_action_values)
+        loss = loss_object(state_action_values, expected_state_action_values)
+        gradients = tape.gradient(loss, net.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, net.trainable_variables))
+    
 
 
 if __name__ == "__main__":
@@ -112,20 +124,19 @@ if __name__ == "__main__":
     parser.add_argument("--reward", type=float, default=MEAN_REWARD_BOUND,
                         help=f"Mean reward boundary fpr stopping the training, default={MEAN_REWARD_BOUND}")
     args = parser.parse_args()
-    device = torch.device("cuda" if args.cuda else "cpu")
 
     env = wrappers.make_env(args.env)
-    net = dqN_model2.DQN(env.observation_space.shape,
-                         env.action_space.n).to(device)
-    tgt_net = dqN_model2.DQN(env.observation_space.shape,
-                             env.action_space.n).to(device)
+    net = tf_dqn_model.DQN(env.observation_space.shape,
+                         env.action_space.n)
+    tgt_net = tf_dqn_model.DQN(env.observation_space.shape,
+                             env.action_space.n)
 
     writer = SummaryWriter(comment="-" + args.env)
 
     buffer = ExperienceBuffer(REPLAY_SIZE)
     agent = Agent(env, buffer)
     epsilon = EPSILON_START
-    optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE)
+
     total_rewards = []
     frame_idx = 0
     ts_frame = 0
@@ -134,7 +145,7 @@ if __name__ == "__main__":
 
     while True:
 
-        reward = agent.play_step(net, epsilon, device)
+        reward = agent.play_step(net, epsilon)
         if len(buffer) < REPLAY_START_SIZE:
             print("\033[F\033[  WWarning! buffering: " +
                   str(round(len(buffer)/REPLAY_START_SIZE*100, 2))+"%")
@@ -156,7 +167,7 @@ if __name__ == "__main__":
             writer.add_scalar("reward", round(reward, 3), frame_idx)
 
             if best_mean_reward is None or best_mean_reward < mean_reward:
-                torch.save(net.state_dict(), args.env + "-best.dat")
+                net.save_weights(args.env + "-best.dat")
                 if best_mean_reward is not None:
                     print("Best mean reward updated %.3f -> %.3f, model saved" %
                           (best_mean_reward, mean_reward))
@@ -166,10 +177,7 @@ if __name__ == "__main__":
                 break
 
         if frame_idx % SYNC_TARGET_FRAMES == 0:
-            tgt_net.load_state_dict(net.state_dict())
-        optimizer.zero_grad()
+            tgt_net.set_weights(net.get_weights())
         batch = buffer.sample(BATCH_SIZE)
-        loss_t = calc_loss(batch, net, tgt_net, device=device)
-        loss_t.backward()
-        optimizer.step()
+        loss_t = train_step(batch, net, tgt_net)
     writer.close()
