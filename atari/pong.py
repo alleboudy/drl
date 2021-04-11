@@ -8,6 +8,9 @@ import time
 import argparse
 from lib import dqN_model2
 from lib import wrappers
+
+import pickle
+
 print("our new code!")
 
 
@@ -83,6 +86,11 @@ class Agent:
 
 def calc_loss(batch, net, tgt_net, device="cuda"):
     states, actions, rewards, dones, next_states = batch
+    with open('batch.pkl', 'wb') as f:
+        # Pickle the 'data' dictionary using the highest protocol available.
+        pickle.dump(batch, f)
+        print("saved batch!")
+        raise 
 
     states_v = torch.tensor(states).to(device)
     actions_v = torch.tensor(actions).to(device)

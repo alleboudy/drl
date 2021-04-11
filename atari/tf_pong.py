@@ -1,4 +1,4 @@
-print("our new code!")
+print("in TF2")
 from lib import wrappers
 from lib import tf_dqn_model
 
@@ -18,8 +18,8 @@ MEAN_REWARD_BOUND = 19.0
 
 GAMMA = 0.99
 BATCH_SIZE = 32
-REPLAY_SIZE = 32#10000
-REPLAY_START_SIZE = 32#10000
+REPLAY_SIZE = 10000
+REPLAY_START_SIZE = 10000
 LEARNING_RATE = 1e-4
 SYNC_TARGET_FRAMES = 1000
 
@@ -74,8 +74,7 @@ class Agent:
             state_a = np.array([self.state], copy=False)
             state_v = tf.convert_to_tensor(state_a, tf.float32)
             q_vals_v = net(state_v)  # shape-> [1,n_actions]
-            action = tf.math.reduce_max(q_vals_v, dim=1).numpy()[0]
-            print(action)
+            action = tf.math.argmax(q_vals_v, 1).numpy()[0]
 
         new_state, reward, is_done, _ = self.env.step(action)
         self.total_reward += reward
@@ -88,26 +87,52 @@ class Agent:
         return done_reward
 
 
-  
+def torch_gather(x, indices, gather_axis):
+    # if pytorch gather indices are
+    # [[[0, 10, 20], [0, 10, 20], [0, 10, 20]],
+    #  [[0, 10, 20], [0, 10, 20], [0, 10, 20]]]
+    # tf nd_gather needs to be
+    # [[0,0,0], [0,0,10], [0,0,20], [0,1,0], [0,1,10], [0,1,20], [0,2,0], [0,2,10], [0,2,20],
+    #  [1,0,0], [1,0,10], [1,0,20], [1,1,0], [1,1,10], [1,1,20], [1,2,0], [1,2,10], [1,2,20]]
+
+    # create a tensor containing indices of each element
+    all_indices = tf.where(tf.fill(indices.shape, True))
+    gather_locations = tf.reshape(indices, [indices.shape.num_elements()])
+
+    # splice in our pytorch style index at the correct axis
+    gather_indices = []
+    for axis in range(len(indices.shape)):
+        if axis == gather_axis:
+            gather_indices.append(gather_locations)
+        else:
+            gather_indices.append(all_indices[:, axis])
+
+    gather_indices = tf.stack(gather_indices, axis=-1)
+    gathered = tf.gather_nd(x, gather_indices)
+    reshaped = tf.reshape(gathered, indices.shape)
+    return reshaped  
   
 
 @tf.function
 def train_step(batch, net, tgt_net):
     with tf.GradientTape() as tape:
         states, actions, rewards, dones, next_states = batch
+        dones=~dones
         states_v = tf.convert_to_tensor(states, tf.float32)
         actions_v = tf.convert_to_tensor(actions, tf.int64)
         rewards_v = tf.convert_to_tensor(rewards, tf.float32)
         done_mask = tf.convert_to_tensor(dones, dtype=tf.bool)
-        done_mask = tf.expand_dims(tf.cast(done_mask, dtype=tf.float32), axis=1)
+        done_mask = tf.cast(done_mask, dtype=tf.float32)
         next_states_v = tf.convert_to_tensor(next_states, tf.float32)
-        state_action_values = tf.squeeze(tf.gather_nd(net(states_v),tf.expand_dims(actions_v,1)),-1)
-
-        next_states_values =  tf.math.reduce_max(tgt_net(next_states_v),1,False) #* done_mask
-
+        state_action_values = tf.squeeze(torch_gather(net(states_v),tf.expand_dims(actions_v, -1),1), -1)
+        #print("state_action_values",state_action_values.shape)
+        #print("tf.math.reduce_max(tgt_net(next_states_v),1,False)", tf.math.reduce_max(tgt_net(next_states_v),1).shape)
+        next_states_values =  tf.math.reduce_max(tgt_net(next_states_v),1) * done_mask
+        #print("done_mask", done_mask.shape)
+        #print("next_states_values",next_states_values.shape)
 
         expected_state_action_values = rewards_v + next_states_values * GAMMA
-
+        #print("expected_state_action_values",expected_state_action_values.shape)
         loss = loss_object(state_action_values, expected_state_action_values)
         gradients = tape.gradient(loss, net.trainable_variables)
         optimizer.apply_gradients(zip(gradients, net.trainable_variables))
@@ -130,6 +155,7 @@ if __name__ == "__main__":
                          env.action_space.n)
     tgt_net = tf_dqn_model.DQN(env.observation_space.shape,
                              env.action_space.n)
+    tgt_net.trainable = False
 
     writer = SummaryWriter(comment="-" + args.env)
 
