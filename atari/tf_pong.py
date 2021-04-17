@@ -12,6 +12,10 @@ import tensorflow as tf
 
 from tensorboardX import SummaryWriter
 
+tf.debugging.experimental.enable_dump_debug_info(
+    dump_root="/tmp/tfdbg2_logdir",
+    tensor_debug_mode="FULL_HEALTH",
+    circular_buffer_size=-1)
 
 DEFAULT_ENV_NAME = "PongNoFrameskip-v4"
 MEAN_REWARD_BOUND = 19.0
@@ -127,7 +131,11 @@ def train_step(batch, net, tgt_net):
         state_action_values = tf.squeeze(torch_gather(net(states_v),tf.expand_dims(actions_v, -1),1), -1)
         #print("state_action_values",state_action_values.shape)
         #print("tf.math.reduce_max(tgt_net(next_states_v),1,False)", tf.math.reduce_max(tgt_net(next_states_v),1).shape)
+        
         next_states_values =  tf.math.reduce_max(tgt_net(next_states_v),1) * done_mask
+        tgt_net.trainable = False
+        print("tgt_net.trainable = ",tgt_net.trainable)
+        print("net.trainable = ",net.trainable)
         #print("done_mask", done_mask.shape)
         #print("next_states_values",next_states_values.shape)
 
