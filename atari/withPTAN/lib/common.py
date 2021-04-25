@@ -273,8 +273,10 @@ def setup_ignite(engine, params,
 
 
 def batch_generator(buffer,
-                    initial: int, batch_size: int):
+                    initial: int, batch_size: int, steps: int):
     buffer.populate(initial)
     while True:
-        buffer.populate(1)
+        buffer.populate(steps)
         yield buffer.sample(batch_size)
+
+
