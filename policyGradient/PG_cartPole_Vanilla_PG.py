@@ -38,6 +38,7 @@ if __name__ == "__main__":
 
     # notice the steps_count is used, so, the r returned is the discounted reward of the s,a over steps_count
     # this is instead of waiting for a whole episode to end to calculate the Q
+    # in the AC method, will use another network to estimate the Q
     exp_source = ptan.experience.ExperienceSourceFirstLast(
         env, agent, gamma=GAMMA, steps_count=REWARD_STEPS)
     optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE)
@@ -54,6 +55,8 @@ if __name__ == "__main__":
     batch_states, batch_actions, batch_scales = [], [], []
     for step_idx, exp in enumerate(exp_source):
         reward_sum += exp.reward
+        # this running average is to fix the gradient high variance
+        # the A3C will get a better baseline
         baseline = reward_sum/(step_idx+1)
         #writer.add_scalar("baseline", baseline, step_idx)
         batch_states.append(exp.state)
@@ -90,12 +93,11 @@ if __name__ == "__main__":
         batch_scales_v = torch.FloatTensor(batch_scales)
         logits_v = net(state_v)
         log_prob_v = F.log_softmax(logits_v, dim=1)
-        
 
         # for each step, take the value for the action taken in that step
         log_prob_actions_v = batch_scales_v * \
             log_prob_v[range(len(batch_states)), batch_actions_t]
-        
+
         # notice range(len(batch_states)) for the first index, because
 
         loss_v = -log_prob_actions_v.mean()
@@ -103,7 +105,7 @@ if __name__ == "__main__":
         # for exploration in PG we can do with entropy instead of epsilon greedy:
         # entropy: if this is high = uniform and minimum when some actions are 1 and some are 0
         entropy_v = -(prob_v*log_prob_v).sum(dim=1).mean()
-        entropy_loss_v = -ENTROPY_BETA * entropy_v 
+        entropy_loss_v = -ENTROPY_BETA * entropy_v
         loss_v = loss_v+entropy_loss_v
 
         loss_v.backward()
@@ -152,4 +154,4 @@ if __name__ == "__main__":
         batch_actions.clear()
         batch_scales.clear()
 
-    #writer.close()
+    # writer.close()
